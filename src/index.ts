@@ -112,8 +112,9 @@ fi
 
   const cleanup = () => {
     try {
+      const clearSeq = overlay.hide();
+      if (clearSeq) process.stdout.write(clearSeq);
       process.stdin.setRawMode(false);
-      overlay.hide();
       pty.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}
@@ -136,12 +137,34 @@ fi
 
   // 7. Master PTY -> stdout
   const masterStream = fs.createReadStream(null as any, { fd: pty.masterFd });
+
+  let overlayPaintPending = false;
+  let overlayPaintTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const flushOverlayPaint = () => {
+    if (!overlayPaintPending) return;
+    overlayPaintPending = false;
+    if (overlayPaintTimer !== undefined) {
+      clearTimeout(overlayPaintTimer);
+      overlayPaintTimer = undefined;
+    }
+    paintOverlay();
+  };
+
+  const requestOverlayPaint = () => {
+    overlayPaintPending = true;
+    if (overlayPaintTimer === undefined) {
+      overlayPaintTimer = setTimeout(flushOverlayPaint, 24);
+    }
+  };
+
   masterStream.on("data", (chunk: Buffer) => {
     process.stdout.write(chunk);
+    flushOverlayPaint();
   });
 
-  // Helper to re-render overlay
-  const updateOverlay = () => {
+  // Helper to re-render overlay (call after PTY has painted the prompt line)
+  const paintOverlay = () => {
     if (!currentLine.trim()) {
       const clearSeq = overlay.hide();
       if (clearSeq) process.stdout.write(clearSeq);
@@ -163,6 +186,10 @@ fi
     if (combined) {
       process.stdout.write(combined);
     }
+  };
+
+  const updateOverlay = () => {
+    paintOverlay();
   };
 
   // 8. Shell IPC pipe -> suggestions engine
@@ -187,7 +214,7 @@ fi
             cursorOffset = parseInt(offsetStr, 10) || 0;
             currentLine = line;
             userNavigated = false;
-            updateOverlay();
+            requestOverlayPaint();
           }
         } else if (msg.startsWith("IRIS_CMD_START")) {
           const clearSeq = overlay.hide();
@@ -311,8 +338,8 @@ fi
       return;
     }
 
-    // Esc: 0x1b
-    if (chunk.length === 1 && chunk[0] === 0x1b) {
+    // Esc: dismiss overlay only (do not swallow bare Esc for the shell)
+    if (chunk.length === 1 && chunk[0] === 0x1b && overlay.isVisible()) {
       const clearSeq = overlay.hide();
       if (clearSeq) process.stdout.write(clearSeq);
       userNavigated = false;

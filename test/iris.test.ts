@@ -3,7 +3,7 @@ import { createPTY } from "../src/pty";
 import { lookupSpec, registry } from "../src/specs";
 import { shellAliasStore } from "../src/shell-aliases";
 import { HistoryStore } from "../src/history";
-import { Overlay, stripAnsi } from "../src/overlay";
+import { Overlay, computeGhostSuffix, stripAnsi } from "../src/overlay";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -54,6 +54,14 @@ describe("Specs registry & lookup", () => {
     expect(results.some((r) => r.cmd === "git status")).toBe(true);
     expect(results.some((r) => r.cmd === "git stash")).toBe(true);
     expect(results.every((r) => r.cmd.startsWith("git st"))).toBe(true);
+  });
+
+  test("filters nested tts families when typing 'tts prov'", () => {
+    const results = lookupSpec("tts prov");
+    const cmds = results.map((r) => r.cmd);
+    expect(cmds).toContain("tts provider");
+    expect(cmds).toContain("tts providers");
+    expect(cmds.some((c) => c === "tts speak")).toBe(false);
   });
 
   test("matches flags when typing 'git --'", () => {
@@ -184,17 +192,18 @@ describe("Overlay display engine", () => {
     ]);
     overlay.render("spec", "git che");
 
-    // 1. Ghost text query
+    // 1. Ghost text is first-token only (subcommands use the menu).
     const ghost = overlay.getGhostText("git che", true);
-    expect(ghost).toBe("ckout");
+    expect(ghost).toBe("");
 
     // When cursor is not at end, ghost text is empty
     const ghostNotEnd = overlay.getGhostText("git che", false);
     expect(ghostNotEnd).toBe("");
 
-    // 2. Render ghost text ANSI sequence
-    const ghostSeq = overlay.renderGhostText("git che", true);
-    expect(ghostSeq).toContain("ckout");
+    // 2. First-token ghost still renders (e.g. partial command name).
+    overlay.render("spec", "gi");
+    const ghostSeq = overlay.renderGhostText("gi", true);
+    expect(ghostSeq).toContain("t");
     expect(ghostSeq).toContain("\x1b7"); // save cursor
     expect(ghostSeq).toContain("\x1b8"); // restore cursor
     // Truecolor for ghost text #4B4A4C (75;74;76)
@@ -203,12 +212,62 @@ describe("Overlay display engine", () => {
     // 3. Ghost text updates when navigating dropdown selection
     overlay.moveCursor("down"); // selects "git commit"
     const commitGhost = overlay.getGhostText("git c", true);
-    expect(commitGhost).toBe("ommit");
+    expect(commitGhost).toBe("");
+
+    // Partial first token: no ghost spill into later words (e.g. not " speak" after "tt").
+    overlay.render("spec", "tt");
+    overlay.setSuggestions([
+      { cmd: "tts speak", desc: "Speak", source: "spec" },
+    ]);
+    expect(computeGhostSuffix("ts", "tts speak", "spec")).toBe("");
+    expect(computeGhostSuffix("tt", "tts speak", "spec")).toBe("s");
+    expect(overlay.getGhostText("tts", true)).toBe("");
+
+    overlay.renderGhostText("tt", true); // draws suffix "s"
+    const afterSpace = overlay.renderGhostText("tt ", true);
+    // Trailing space ends the token: the stale ghost must be erased, not orphaned.
+    expect(afterSpace).toContain("\x1b7");
+    expect(afterSpace).toContain("\x1b8");
+    expect(afterSpace).toMatch(/ {1,}/);
+    expect(overlay.getGhostText("tt ", true)).toBe("");
+
+    // Subcommand tokens: menu only — no inline ghost after the first word.
+    overlay.setSuggestions([
+      { cmd: "tts speak", desc: "Speak", source: "spec" },
+    ]);
+    overlay.render("spec", "tts s");
+    expect(overlay.getGhostText("tts s", true)).toBe("");
+    expect(overlay.renderGhostText("tts sp", true)).toBe("");
+
+    // First-token shrink still erases the full prior ghost run.
+    overlay.render("spec", "tt");
+    overlay.renderGhostText("tt", true);
+    const shrinkSeq = overlay.renderGhostText("tts", true);
+    expect(shrinkSeq).toContain("\x1b[1D");
 
     // 4. Hiding clears ghost text
     const hideSeq = overlay.hide();
     expect(overlay.isVisible()).toBe(false);
     expect(hideSeq).toContain("\x1b7");
+  });
+
+  test("render reserves menu rows without resetting the prompt column", () => {
+    const overlay = new Overlay();
+    overlay.setSuggestions(
+      Array.from({ length: 6 }, (_, i) => ({
+        cmd: `tts sub${i}`,
+        desc: `sub ${i}`,
+        source: "spec" as const,
+      }))
+    );
+
+    const seq = overlay.render("spec", "tts ");
+
+    // Menu rows are reserved with IND (ESC D), which scrolls while preserving the
+    // cursor column. A literal "\n" is rewritten to CR+LF by the tty's OPOST/ONLCR
+    // and drops the saved anchor to column 0 — the "cursor jumps to the left" bug.
+    expect(seq).toContain("\x1bD");
+    expect(seq).not.toContain("\n");
   });
 });
 

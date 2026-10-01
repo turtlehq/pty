@@ -7,6 +7,7 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "test": "bun test",
+    "test:e2e-prompt": "bun test test/e2e-prompt-space.test.ts",
     "test:live-tts": "BUN_TEST_REAL_TTS=1 bun test test/completion-projection.test.ts",
     "test:fixtures:refresh": "bun run scripts/refresh-catalog-fixtures.ts",
     "compile": "bun build --compile src/index.ts --outfile iris-bun"

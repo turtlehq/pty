@@ -252,6 +252,45 @@ function renderMatchedTitle(
   return bold(fg(irisTheme.match, matchPart)) + fg(textColor, restPart);
 }
 
+/** Inline ghost suffix only — never spill into later tokens while the first token is incomplete. */
+export function computeGhostSuffix(
+  buffer: string,
+  topCmd: string,
+  source?: Suggestion["source"]
+): string {
+  if (!buffer || buffer.endsWith(" ")) return "";
+
+  if (source === "alias" && topCmd === buffer) return "";
+
+  const bufferHasSpace = /\s/.test(buffer);
+
+  if (source === "alias" && topCmd.startsWith(buffer)) {
+    return topCmd.slice(buffer.length);
+  }
+
+  if (!bufferHasSpace) {
+    const cmdFirst = topCmd.split(/\s+/)[0] ?? topCmd;
+    if (!cmdFirst.toLowerCase().startsWith(buffer.toLowerCase())) {
+      return "";
+    }
+    if (buffer.length < cmdFirst.length) {
+      return cmdFirst.slice(buffer.length);
+    }
+    return "";
+  }
+
+  if (topCmd.toLowerCase().startsWith(buffer.toLowerCase())) {
+    return topCmd.slice(buffer.length);
+  }
+  return "";
+}
+
+/** Inline ghost is for the first token only; subcommand typing uses the menu. */
+export function ghostEligibleBuffer(buffer: string): boolean {
+  if (!buffer || buffer.endsWith(" ")) return false;
+  return !buffer.includes(" ");
+}
+
 export class Overlay {
   private lastDrawnLines = 0;
   private selectedIndex = 0;
@@ -295,7 +334,7 @@ export class Overlay {
       this.suggestions.length === 0 ||
       !cursorAtEnd ||
       !buffer ||
-      buffer.endsWith(" ")
+      !ghostEligibleBuffer(buffer)
     ) {
       return "";
     }
@@ -305,18 +344,7 @@ export class Overlay {
         : this.suggestions[0];
     const topCmd = top.cmd;
 
-    if (top.source === "alias" && topCmd === buffer) {
-      return "";
-    }
-    if (top.source === "alias") {
-      if (topCmd.startsWith(buffer)) return topCmd.slice(buffer.length);
-      return "";
-    }
-
-    if (topCmd.toLowerCase().startsWith(buffer.toLowerCase())) {
-      return topCmd.slice(buffer.length);
-    }
-    return "";
+    return computeGhostSuffix(buffer, topCmd, top.source);
   }
 
   public clearGhostTextState(): void {
@@ -325,9 +353,9 @@ export class Overlay {
 
   public hideGhostTextSync(): string {
     if (this.lastGhostLen > 0) {
-      const padLen = this.lastGhostLen + 4;
+      const n = this.lastGhostLen;
       this.lastGhostLen = 0;
-      return "\x1b7\x1b[s" + " ".repeat(padLen) + "\x1b8\x1b[u";
+      return "\x1b7" + " ".repeat(n) + "\x1b8";
     }
     return "";
   }
@@ -337,9 +365,7 @@ export class Overlay {
       return this.hideGhostTextSync();
     }
 
-    // Trailing space: next token not started — menu only; ghost save/restore can
-    // clobber zsh's prompt line.
-    if (buffer.endsWith(" ")) {
+    if (!ghostEligibleBuffer(buffer)) {
       return this.hideGhostTextSync();
     }
 
@@ -349,15 +375,7 @@ export class Overlay {
         this.selectedIndex >= 0 && this.selectedIndex < this.suggestions.length
           ? this.suggestions[this.selectedIndex]
           : this.suggestions[0];
-      const topCmd = top.cmd;
-
-      if (top.source === "alias" && topCmd === buffer) {
-        ghostText = "";
-      } else if (top.source === "alias" && topCmd.startsWith(buffer)) {
-        ghostText = topCmd.slice(buffer.length);
-      } else if (topCmd.toLowerCase().startsWith(buffer.toLowerCase())) {
-        ghostText = topCmd.slice(buffer.length);
-      }
+      ghostText = computeGhostSuffix(buffer, top.cmd, top.source);
     }
 
     if (ghostText !== "") {
@@ -377,19 +395,20 @@ export class Overlay {
     }
 
     const ghostWidth = visualWidth(ghostText);
-    let padLen = Math.max(0, this.lastGhostLen - ghostWidth);
-    if (this.lastGhostLen > 0) {
-      padLen += 4;
-    }
+    const eraseLen = this.lastGhostLen;
 
-    let out = "\x1b7\x1b[s"; // Save cursor
+    // Wipe the previous ghost run entirely, then draw from the buffer end.
+    // Partial pad (oldLen - newLen) overwrote the last typed char when the
+    // suffix shrank (e.g. tts s + "peak" → tts sp + "eak").
+    let out = "\x1b7";
+    if (eraseLen > 0) {
+      out += " ".repeat(eraseLen);
+      out += `\x1b[${eraseLen}D`;
+    }
     if (ghostText !== "") {
       out += fg(irisTheme.ghostText, ghostText);
     }
-    if (padLen > 0) {
-      out += " ".repeat(padLen);
-    }
-    out += "\x1b8\x1b[u"; // Restore cursor
+    out += "\x1b8";
     this.lastGhostLen = ghostWidth;
     return out;
   }
@@ -406,11 +425,11 @@ export class Overlay {
 
   public clear(): string {
     if (this.lastDrawnLines === 0) return "";
-    let out = "\x1b7\x1b[s"; // Save cursor position
+    let out = "\x1b7"; // Save cursor position
     for (let i = 1; i <= this.lastDrawnLines; i++) {
-      out += `\x1b8\x1b[u\x1b[${i}B\r\x1b[2K`; // Restore to prompt, move down i lines, clear line
+      out += `\x1b8\x1b[${i}B\r\x1b[2K`; // Restore to prompt, move down i lines, clear line
     }
-    out += "\x1b8\x1b[u"; // Restore cursor back to prompt
+    out += "\x1b8"; // Restore cursor back to prompt
     this.lastDrawnLines = 0;
     return out;
   }
@@ -458,15 +477,21 @@ export class Overlay {
 
     let output = "";
 
-    // Clear previously drawn box lines
-    output += this.clear();
+    const prevDrawnLines = this.lastDrawnLines;
+    const extraLines =
+      prevDrawnLines === 0 ? totalLines : Math.max(0, totalLines - prevDrawnLines);
 
-    // Scroll protection: pre-allocate newlines so terminal scrolls if near bottom
-    output += "\n".repeat(totalLines);
-    output += `\x1b[${totalLines}A`;
+    if (extraLines > 0) {
+      // Reserve menu rows, scrolling the screen if needed. Use IND (ESC D)
+      // rather than "\n": the tty's OPOST/ONLCR rewrites "\n" to CR+LF, which
+      // resets the column to 0 and makes the saved anchor (and thus the cursor)
+      // jump to the left. IND scrolls while preserving the column, so CUU back
+      // up lands on the true anchor with the cursor still after the input.
+      output += "\x1bD".repeat(extraLines);
+      output += `\x1b[${extraLines}A`;
+    }
 
-    // Save stabilized cursor position (both DEC and SCO)
-    output += "\x1b7\x1b[s";
+    output += "\x1b7";
 
     const moveToTarget = () => {
       let s = "\r";
@@ -476,9 +501,11 @@ export class Overlay {
       return s;
     };
 
+    const gotoMenuLine = (lineDown: number) =>
+      `\x1b8\x1b[${lineDown}B\r\x1b[2K${moveToTarget()}`;
+
     // 1. Top border with scroll counter
-    output += "\x1b8\x1b[u\x1b[1B\r\x1b[2K";
-    output += moveToTarget();
+    output += gotoMenuLine(1);
 
     let scrollInfo = "";
     if (this.suggestions.length > windowSize) {
@@ -507,8 +534,7 @@ export class Overlay {
       const selected = i === this.selectedIndex;
       const lineDown = i - start + 2;
 
-      output += `\x1b8\x1b[u\x1b[${lineDown}B\r\x1b[2K`;
-      output += moveToTarget();
+      output += gotoMenuLine(lineDown);
 
       const marker = selected ? bold(fg(irisTheme.accent, "▶")) : " ";
       const iconKey = it.icon || it.cmd.split(/\s+/)[0] || "";
@@ -576,8 +602,7 @@ export class Overlay {
     }
 
     // 3. Bottom border with footer shortcuts
-    output += `\x1b8\x1b[u\x1b[${windowSize + 2}B\r\x1b[2K`;
-    output += moveToTarget();
+    output += gotoMenuLine(windowSize + 2);
 
     const footerInfo = ` ${bold(fg(irisTheme.key, "tab"))}${fg(
       irisTheme.scrollInfo,
@@ -594,8 +619,13 @@ export class Overlay {
       inner - footerW - 2
     );
 
-    // 4. Restore cursor position to prompt anchor
-    output += "\x1b8\x1b[u";
+    if (prevDrawnLines > totalLines) {
+      for (let d = totalLines + 1; d <= prevDrawnLines; d++) {
+        output += gotoMenuLine(d);
+      }
+    }
+
+    output += "\x1b8";
 
     this.lastDrawnLines = totalLines;
     return output;
