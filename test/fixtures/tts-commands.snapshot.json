@@ -1,0 +1,245 @@
+{
+  "version": 3,
+  "name": "tts",
+  "tagline": "multi-provider speech",
+  "topLevel": [
+    "speak",
+    "server",
+    "conversation",
+    "commands"
+  ],
+  "sections": [
+    {
+      "title": "Synthesis",
+      "lines": [
+        {
+          "usage": "speak [opts] [TEXT…] | speak -f PATH",
+          "hint": "defaults from voice show / provider show / persona show"
+        },
+        {
+          "usage": "conversation [-o PATH] [--model ID]",
+          "hint": "multi-speaker demo (Gemini)"
+        },
+        {
+          "usage": "server [--port N]",
+          "hint": "web UI (default :3001)"
+        }
+      ]
+    },
+    {
+      "title": "Providers & voices",
+      "lines": [
+        {
+          "usage": "provider list [--json] | provider set <id> | provider show"
+        },
+        {
+          "usage": "voice list [--provider ID] [--json] | voice set <name> [--provider ID] | voice show"
+        },
+        {
+          "usage": "persona list | persona set <name> | persona show | persona unset"
+        }
+      ]
+    },
+    {
+      "title": "Catalog",
+      "lines": [
+        {
+          "usage": "commands [--json]",
+          "hint": "machine-readable catalog"
+        },
+        {
+          "usage": "help | ?"
+        },
+        {
+          "usage": "<noun> <subcommand> -h",
+          "hint": "per-command help"
+        }
+      ]
+    }
+  ],
+  "nouns": {
+    "provider": {
+      "verbs": [
+        "list",
+        "set",
+        "show"
+      ],
+      "aliases": {
+        "providers": "list"
+      },
+      "usage": "provider list [--json] | provider set <id> | provider show",
+      "verbHelp": {
+        "list": [
+          "List TTS backends (gemini, qwen, edge)."
+        ],
+        "set": [
+          "Persist default provider; picks a valid voice if needed."
+        ],
+        "show": [
+          "Show saved provider, voice, persona, and settings path."
+        ]
+      }
+    },
+    "voice": {
+      "verbs": [
+        "list",
+        "set",
+        "show"
+      ],
+      "aliases": {
+        "voices": "list"
+      },
+      "usage": "voice list [--provider ID] [--json] | voice set <name> [--provider ID] | voice show",
+      "verbHelp": {
+        "list": [
+          "Tabular voice catalog; edge voices are fetched live."
+        ],
+        "set": [
+          "Persist default voice for a provider."
+        ],
+        "show": [
+          "Same Settings block as provider show (includes voice)."
+        ]
+      }
+    },
+    "persona": {
+      "verbs": [
+        "list",
+        "set",
+        "show",
+        "unset"
+      ],
+      "aliases": {
+        "personas": "list"
+      },
+      "usage": "persona list | persona set <name> | persona show | persona unset",
+      "verbHelp": {
+        "list": [
+          "Content-voice rewrite personas (Gemini text API)."
+        ],
+        "set": [
+          "Default persona applied on speak (and web when unset)."
+        ],
+        "show": [
+          "Active persona and available ids."
+        ],
+        "unset": [
+          "Clear saved persona; speak uses raw script."
+        ]
+      }
+    }
+  },
+  "speak": {
+    "usage": [
+      "speak [options] [TEXT…]",
+      "speak -f PATH"
+    ],
+    "notes": [
+      "Defaults: saved provider, voice, persona (tts voice show).",
+      "Legacy: omit speak — flags and positional text still work."
+    ],
+    "flags": [
+      {
+        "flags": "-f, --file PATH",
+        "describe": "markdown or text file"
+      },
+      {
+        "flags": "-o, --output PATH",
+        "describe": "output WAV path"
+      },
+      {
+        "flags": "--provider ID",
+        "describe": "gemini | qwen | edge (gemini, qwen, edge)"
+      },
+      {
+        "flags": "--model ID",
+        "describe": "Gemini TTS model (or GEMINI_TTS_MODEL)"
+      },
+      {
+        "flags": "--qwen-url URL",
+        "describe": "Qwen sidecar base URL"
+      },
+      {
+        "flags": "--voice NAME",
+        "describe": "override saved voice this run"
+      },
+      {
+        "flags": "--prompt TEXT",
+        "describe": "delivery style (TTS prompt)"
+      },
+      {
+        "flags": "--persona NAME",
+        "describe": "content rewrite (overrides saved persona)"
+      },
+      {
+        "flags": "--no-persona",
+        "describe": "skip persona rewrite this run"
+      },
+      {
+        "flags": "--filter TYPE",
+        "describe": "ffmpeg effect (default: telephone)"
+      },
+      {
+        "flags": "--no-filter",
+        "describe": "disable effect filter"
+      },
+      {
+        "flags": "--speed N",
+        "describe": "playback speed multiplier"
+      },
+      {
+        "flags": "-p, --play / --no-play",
+        "describe": "play after generate"
+      },
+      {
+        "flags": "-m, --markdown",
+        "describe": "treat inline text as markdown"
+      }
+    ]
+  },
+  "server": {
+    "usage": "server [--port N]",
+    "flags": [
+      {
+        "flags": "--port N",
+        "describe": "listen port (default 3001)"
+      }
+    ]
+  },
+  "conversation": {
+    "usage": "conversation [-o PATH] [--model ID]",
+    "flags": [
+      {
+        "flags": "-o, --output PATH",
+        "describe": "output WAV"
+      },
+      {
+        "flags": "--model ID",
+        "describe": "Gemini TTS model"
+      }
+    ]
+  },
+  "legacy": [
+    "--list-voices → voice list",
+    "--list-personas → persona list",
+    "--list-qwen-speakers → voice list --provider qwen",
+    "--server → server",
+    "--conversation → conversation",
+    "speaker | speakers → voice list --provider qwen (deprecated)"
+  ],
+  "deprecated": [
+    "speaker",
+    "speakers"
+  ],
+  "examples": [
+    "tts provider set edge && tts voice set en-US-EmmaMultilingualNeural --provider edge",
+    "tts persona set wabi && tts speak \"Hello\"",
+    "tts speak --no-persona -f README.md --no-play",
+    "tts voice list --provider gemini --json"
+  ],
+  "providers": [
+    "gemini",
+    "qwen",
+    "edge"
+  ]
+}

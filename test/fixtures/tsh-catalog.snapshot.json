@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "tsh",
+  "topLevel": [
+    "stats",
+    "ops",
+    "query",
+    "gaps",
+    "laptop",
+    "refs",
+    "kernel",
+    "capabilities",
+    "caps",
+    "sidecars",
+    "registry",
+    "projections",
+    "surfaces",
+    "commands",
+    "exec",
+    "list",
+    "alias",
+    "explain",
+    "why"
+  ],
+  "nouns": {
+    "entity": {
+      "verbs": ["list", "get"],
+      "aliases": { "show": "get" },
+      "usage": "entity list [-t TYPE] [-f k=v…] [--sort F[:asc|desc]] [--limit N] [--json] | entity get|show ID [--json]"
+    },
+    "fact": {
+      "verbs": ["query"],
+      "usage": "fact query [-e ID] [-a ATTR] [--json]"
+    },
+    "link": {
+      "verbs": ["query"],
+      "usage": "link query [-e ID] [-a ATTR] [--json]"
+    },
+    "issue": {
+      "verbs": ["list", "show"],
+      "default": "list",
+      "usage": "issue list [--status S] [--label L] [--view list|table|kanban] | issue show ID"
+    },
+    "system": {
+      "verbs": ["status", "config", "shutdown"],
+      "usage": "system status|config [--json] | system shutdown [--now]"
+    }
+  }
+}

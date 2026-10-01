@@ -1,0 +1,20 @@
+{
+  "name": "iris-bun",
+  "version": "0.1.0",
+  "description": "Proof of concept TTY shell autocompletion in Bun",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "test:live-tts": "BUN_TEST_REAL_TTS=1 bun test test/completion-projection.test.ts",
+    "test:fixtures:refresh": "bun run scripts/refresh-catalog-fixtures.ts",
+    "compile": "bun build --compile src/index.ts --outfile iris-bun"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
